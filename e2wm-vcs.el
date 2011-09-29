@@ -20,18 +20,22 @@
 
 ;;; Commentary:
 
-;; These are e2wm perspectives for magit and dsvn.
-;; One can change the perspective by M-x e2wm:dp-magit or e2wm:dp-svn.
+;; These are e2wm perspectives for magit ,dsvn and monky.
+;; One can change the perspective by M-x e2wm:dp-magit ,e2wm:dp-svn or e2wm:dp-monky.
+;; M-x e2wm:dp-vcs try to select perspective DWIM, depends on directory.
 
 ;; Here is a sample code to add switching perspective key bindings:
 ;; (e2wm:add-keymap e2wm:pst-minor-mode-keymap '(("prefix v" . e2wm:dp-magit)) e2wm:prefix-key)
-;; (e2wm:add-keymap e2wm:pst-minor-mode-keymap '(("prefix v" . e2wm:dp-svn)) e2wm:prefix-key)
+;; (e2wm:add-keymap e2wm:pst-minor-mode-keymap '(("prefix v" . e2wm:dp-svn  )) e2wm:prefix-key)
+;; (e2wm:add-keymap e2wm:pst-minor-mode-keymap '(("prefix v" . e2wm:dp-monky)) e2wm:prefix-key)
+;; (e2wm:add-keymap e2wm:pst-minor-mode-keymap '(("prefix v" . e2wm:dp-vcs  )) e2wm:prefix-key)
 
 ;;; Code:
 
-(require 'e2wm)
-(require 'magit)
-(require 'dsvn)
+(require 'e2wm  nil t)
+(require 'magit nil t)
+(require 'dsvn  nil t)
+(require 'monky nil t)
 
 
 ;;; Utilities
@@ -67,6 +71,21 @@
        (with-selected-window (wlf:get-window wm (wlf:window-name winfo))
          (with-current-buffer buf 
            (funcall body-func dir topdir))
+         (wlf:set-buffer wm (wlf:window-name winfo)
+                         (window-buffer (selected-window)))))
+      (t
+       (wlf:set-buffer wm (wlf:window-name winfo) 
+                       (funcall na-buffer-func)))))))
+
+(defun e2wm:def-plugin-monky-with-window (topdir-func body-func na-buffer-func)
+  (let* ((buf (e2wm:history-get-main-buffer))
+         (topdir  (funcall topdir-func)))
+    (e2wm:with-advice
+     (cond
+      (topdir
+       (with-selected-window (wlf:get-window wm (wlf:window-name winfo))
+         (with-current-buffer buf 
+           (funcall body-func))
          (wlf:set-buffer wm (wlf:window-name winfo)
                          (window-buffer (selected-window)))))
       (t
@@ -312,8 +331,157 @@
 (defvar e2wm:dp-svn-minor-mode-map
   (e2wm:define-keymap '() e2wm:prefix-key))
 
-;; (e2wm:add-keymap e2wm:pst-minor-mode-keymap '(("prefix v" . e2wm:dp-svn)) e2wm:prefix-key)
+
+;;; monky / plugins
+;;;--------------------------------------------------
 
+(defun e2wm:def-plugin-monky-branches (frame wm winfo)
+  (e2wm:def-plugin-monky-with-window
+   'monky-get-root-dir
+     'monky-branches
+   (lambda () (e2wm:def-plugin-vcs-na-buffer "Hg N/A"))))
+
+(e2wm:plugin-register 'e2wm-monky-branches
+                      "Monky Branches"
+                      'e2wm:def-plugin-monky-branches)
+
+(defun e2wm:def-plugin-monky-logs (frame wm winfo)
+  (e2wm:def-plugin-monky-with-window
+   'monky-get-root-dir
+   'monky-log
+   (lambda () (e2wm:def-plugin-vcs-na-buffer "Hg N/A"))))
+
+(e2wm:plugin-register 'e2wm-monky-logs
+                      "Monky Logs"
+                      'e2wm:def-plugin-monky-logs)
+
+(defun e2wm:def-plugin-monky-status (frame wm winfo)
+  (e2wm:def-plugin-monky-with-window
+   'monky-get-root-dir
+   'monky-status
+   (lambda () (e2wm:history-get-main-buffer))))
+
+(e2wm:plugin-register 'e2wm-monky-status
+                      "Monky Status"
+                      'e2wm:def-plugin-monky-status)
+
+(defun e2wm:def-plugin-monky-queue (frame wm winfo)
+  (e2wm:def-plugin-monky-with-window
+   'monky-get-root-dir
+   'monky-queue
+   (lambda () (e2wm:history-get-main-buffer))))
+
+(e2wm:plugin-register 'e2wm-monky-queue
+                      "Monky Queue"
+                      'e2wm:def-plugin-monky-queue)
+
+
+;;; monky / monky perspective
+;;;--------------------------------------------------
+
+(defvar e2wm:c-monky-recipe
+  '(| (:left-max-size 35)
+      (- (:upper-size-ratio 0.7)
+         files history)
+      (| (:right-max-size 45)
+         (- (:upper-size-ratio 0.6) main sub)
+         (- (:upper-size-ratio 0.2) branches
+            (- (:upper-size-ratio 0.4) queue logs )))))
+
+(defvar e2wm:c-monky-winfo
+  '((:name main     :plugin e2wm-monky-status)
+    (:name files    :plugin files)
+    (:name history  :plugin history-list)
+    (:name sub      :buffer nil :default-hide t)
+    (:name branches :plugin e2wm-monky-branches)
+    (:name logs     :plugin e2wm-monky-logs)
+    (:name queue    :plugin e2wm-monky-queue)))
+
+(defvar e2wm:c-monky-show-main-regexp
+   "\\*\\(vc-diff\\)\\*")
+
+(e2wm:pst-class-register 
+  (make-e2wm:$pst-class
+   :name   'monky
+   :title  " Monky"
+   :init   'e2wm:dp-monky-init
+   :main   'main
+   :start  'e2wm:dp-monky-start
+   :switch 'e2wm:dp-monky-switch
+   :popup  'e2wm:dp-monky-popup
+   :leave  'e2wm:dp-monky-leave
+   :keymap 'e2wm:dp-monky-minor-mode-map))
+
+(defadvice monky-log-edit-commit (after e2wm:ad-override-monky)
+  (e2wm:pst-update-windows))
+(ad-deactivate-regexp "^e2wm:ad-override-monky$")
+
+(defun e2wm:dp-monky-leave (wm)
+  (ad-deactivate-regexp "^e2wm:ad-override-monky$")
+  (setq prev-selected-buffer nil))
+
+(defun e2wm:dp-monky-start (wm)
+  (ad-activate-regexp "^e2wm:ad-override-monky$"))
+
+(defun e2wm:dp-monky-init ()
+  (let* ((monky-wm 
+          (wlf:no-layout e2wm:c-monky-recipe e2wm:c-monky-winfo))
+         (buf (or prev-selected-buffer
+                  (e2wm:history-get-main-buffer))))
+    monky-wm))
+
+(defun e2wm:dp-monky-switch (buf)
+  (e2wm:message "#DP MONKY switch : %s" buf)
+  nil)
+
+(defun e2wm:dp-monky-popup (buf)
+  (let ((cb (current-buffer)))
+    (e2wm:message "#DP MONKY popup : %s (current %s / backup %s)" 
+                  buf cb e2wm:override-window-cfg-backup))
+  (let ((buf-name (buffer-name buf))
+        (wm (e2wm:pst-get-wm))
+        (not-minibufp (= 0 (minibuffer-depth))))
+    (e2wm:with-advice
+     (cond
+      ((equal buf-name monky-commit-buffer-name)
+       ;; displaying commit objects in the main window
+       (e2wm:pst-buffer-set 'main buf t nil))
+      (t
+       ;; displaying other objects in the sub window
+       (e2wm:pst-buffer-set 'sub buf t not-minibufp))))))
+
+;; Commands / Keybindings
+
+(defun e2wm:dp-monky ()
+  (interactive)
+  (e2wm:pst-change 'monky))
+
+(defvar e2wm:dp-monky-minor-mode-map
+  (e2wm:define-keymap '() e2wm:prefix-key))
+
+(defun e2wm:dp-vcs ()
+  (interactive)
+  (cond 
+   ((if (require 'monky nil t)
+        (condition-case nil
+            (monky-hg-string "root")
+          (error nil))
+      nil)
+    (e2wm:pst-change 'monky))
+   ((if (require 'magit nil t)
+        (magit-git-string "rev-parse" "--show-cdup")
+      nil)
+    (e2wm:pst-change 'magit))
+   ((if (require 'dsvn nil t)
+        (e2wm:def-plugin-svn-top-dir
+         (file-name-directory 
+          (buffer-file-name (current-buffer))))
+      nil)
+    (e2wm:pst-change 'svn))
+   (t 
+    (message "Not inside a repository"))))
+
+;; (e2wm:add-keymap e2wm:pst-minor-mode-keymap '(("prefix v" . e2wm:dp-svn)) e2wm:prefix-key)
 
 (provide 'e2wm-vcs)
 ;;; e2wm-vcs.el ends here
